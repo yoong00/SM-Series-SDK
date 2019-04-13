@@ -1,0 +1,448 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Windows.Forms;
+using System.Runtime.InteropServices;
+using System.IO;
+using System.Threading;
+
+
+namespace SM_Series_SDK
+{
+    public partial class SDK_USBm : Form
+    {      
+        int nTOTPixelNo, nRealPixelNo, EffectivePixelIndex;
+        int lIntTime,sTotChnlNum;
+        public double[] dCoefficient = new double[4];
+
+        public SDK_USBm()
+        {
+            InitializeComponent();
+            SaveFileName.Text = "SDK_Data";
+            IntegTime.Text = "25";
+            TimeAverage.Text = "1";
+            CheckConnections.Enabled = false;
+            CheckChannels.Enabled = false;
+            GetDataAll.Enabled = false;
+            Graph.Enabled = false;
+            SaveFileName.Enabled = false;
+            IntegTime.Enabled = false;
+            TimeAverage.Enabled = false;
+            rb_FactoryData.Checked = true;
+            Model.SelectedValueChanged += new EventHandler(ButtonState);
+        }
+        public void CheckConnections_Click(object sender, EventArgs e)
+        {
+            short sRtn;
+            sRtn =  SPdbUSBm.spTestAllChannels(0);
+
+            if (sRtn > 0)
+            {
+                CheckConText.Text = ("Testing the USB borad... OK!");
+                sTotChnlNum =  sRtn;
+            }
+            else
+            {
+                CheckConText.Text = ("The USB board does not work correctly.");
+            }
+            CheckChannels.Enabled = true; 
+        }
+        public void CheckChannels_Click(object sender, EventArgs e)
+        {
+            short sRtn;
+            short SpType = 0;
+
+
+            sRtn = SPdbUSBm.spSetupAllChannels();
+            if (sRtn > 0)
+            {
+                CheckChnText.Text = "Setup Channels...OK!";
+
+                if (Model.Text == "SM24X")
+                {
+                    nTOTPixelNo = 2080;
+                    nRealPixelNo = 2048;
+                    EffectivePixelIndex = 32;
+                    lIntTime = 30;
+                    SpType = 0;
+
+                }
+                else if (Model.Text == "SM44X")
+                {
+                    nTOTPixelNo = 3680; 
+                    nRealPixelNo = 3648;
+                    EffectivePixelIndex = 32;
+                    lIntTime = 30;
+                    SpType = 1;
+                }
+                else if (Model.Text == "SM303")
+                {
+                    nTOTPixelNo = 1056;
+                    nRealPixelNo = 1024;
+                    EffectivePixelIndex = 10;
+                    lIntTime = 30;
+                    SpType = 2;
+                }
+                else if (Model.Text == "SM642")
+                {
+                    nTOTPixelNo = 2080;
+                    nRealPixelNo = 2048;
+                    EffectivePixelIndex = 10;
+                    lIntTime = 30;
+                    SpType = 4;
+                }
+
+                else
+                {   
+                    MessageBox.Show("Not Seleted Model");
+                    CheckChnText.Text = "Setup Channels...Error!";
+                    sRtn = -1;
+                }
+
+                if (sRtn > 0)
+                {
+                    double[] WLTableArray = new double[nRealPixelNo];
+
+                    sRtn = SPdbUSBm.spInitAllChannels(SpType);
+                    sRtn = SPdbUSBm.spGetWLTable(WLTableArray, 0);
+
+                    if (IntegTime.Text == "") { }
+                    else if (Model.Text == "SM44X")
+                    {
+                        lIntTime = int.Parse(IntegTime.Text);
+                        sRtn = SPdbUSBm.spSetDblIntEx(lIntTime, 0);
+                    }
+
+                    else if (double.Parse(IntegTime.Text) > 0)
+                    {
+                        lIntTime = int.Parse(IntegTime.Text);
+                        sRtn = SPdbUSBm.spSetIntEx(lIntTime, 0);
+                    }
+                }
+            }
+            else
+                CheckChnText.Text = "Setup Channels...Error!";
+            
+            GetDataAll.Enabled = true;
+            Graph.Enabled = true;
+            SaveFileName.Enabled = true;
+            IntegTime.Enabled = true;
+            TimeAverage.Enabled = true;
+        }
+        public void IntegTime_TextChanged(object sender, EventArgs e)
+        {
+            int sRtn;
+
+
+            for (int i = 0; i < IntegTime.Text.Length; i++)
+            {
+                if (char.IsNumber(IntegTime.Text[i]) == false)
+                {   
+                    MessageBox.Show("숫자를 입력하세요");
+                    return;
+                }
+            }
+
+            if (IntegTime.Text == ""){ }
+            else if(Model.Text == "SM44X")
+                {
+                lIntTime = int.Parse(IntegTime.Text);
+                sRtn = SPdbUSBm.spSetDblIntEx(lIntTime, 0);
+            }
+
+            else if (double.Parse(IntegTime.Text) > 0)
+            {
+                lIntTime = int.Parse(IntegTime.Text);
+                sRtn = SPdbUSBm.spSetIntEx(lIntTime, 0);
+            }
+            
+        }
+        public void Graph_Click(object sender, EventArgs e)
+        {
+            int sRtn;
+
+            Graph frm = new Graph();
+            frm.pParent = this;
+            frm.TOTNo = nTOTPixelNo;
+            frm.RealNo = nRealPixelNo;
+
+            double[] WLTableArray = new double[nRealPixelNo];
+            double[] dWL = new double[nRealPixelNo];
+            
+            sRtn = SPdbUSBm.spGetWLTable(WLTableArray, 0);
+            
+            if (rb_UserData.Checked == true)
+            {
+                for (int i = 0; i < nRealPixelNo; i++)
+                {
+                    SPdbUSBm.spPolyCalc(dCoefficient, 3, (i + 1), dWL);
+                    frm.dWL = dWL;
+                }
+            }
+
+            frm.DataArray = new Int32[frm.TOTNo];
+            frm.YPlotDataArray = new Int32[frm.RealNo];
+
+            if (frm.DataThread == null)
+            {
+                frm.DataThread = new Thread(new ThreadStart(frm.Woker));
+                frm.DataThread.Start();
+
+            }
+            if (frm.DataThread.IsAlive == false)
+            {
+                frm.DataThread = new Thread(new ThreadStart(frm.Woker));
+                frm.DataThread.Start();
+            }
+
+            frm.WLTableArray = WLTableArray;          
+            frm.ShowDialog();
+
+
+    
+        }
+        private void GetDataSet()
+        {
+            
+                int sRtn;
+
+                Int32[] DataArray = new Int32[nTOTPixelNo];
+                double[] WLTableArray = new double[nRealPixelNo];
+                double[] dWL = new double[nRealPixelNo];
+                Int32[] tempArray = new Int32[nTOTPixelNo];
+
+                string savePath = AppDomain.CurrentDomain.BaseDirectory + SaveFileName.Text + ".txt";
+                string text = "Index\tWavelength(nm)\t\tIntensity\t\t" + "\r\n";
+                System.IO.File.WriteAllText(savePath, text);
+
+
+                sRtn = SPdbUSBm.spGetWLTable(WLTableArray, 0);
+
+                if (ExTernalTrigger.Checked == false)
+                {
+                    sRtn = SPdbUSBm.spSetTrgEx(11, 0); //internal
+
+                    for (int i = 0; i < int.Parse(TimeAverage.Text); i++)
+                    {
+                        sRtn = SPdbUSBm.spReadDataEx(DataArray, 0);
+
+                        for (int j = 0; j < nRealPixelNo; j++)
+                            tempArray[j + EffectivePixelIndex] += DataArray[j + EffectivePixelIndex];
+                    }
+                }
+                else
+                {
+                    sRtn = SPdbUSBm.spSetTrgEx(12, 0);
+
+                    for (int i = 0; i < int.Parse(TimeAverage.Text); i++)
+                    {
+                        do
+                        {
+                            sRtn = SPdbUSBm.spReadDataEx(DataArray, 0);
+                        } while (sRtn == 99);
+
+                        for (int j = 0; j < nRealPixelNo; j++)
+                            tempArray[j + EffectivePixelIndex] += DataArray[j + EffectivePixelIndex];
+                    }
+                }
+
+                if (TimeAverage.Text == "1")
+                {/*
+                    if (Model.Text == "SM642")
+                    {
+                        System.Buffer.BlockCopy(tempArray, sizeof(Int32) * 10, DataArray, 0, sizeof(Int32) * nRealPixelNo);
+                    }
+                    else 
+                    {
+                        System.Buffer.BlockCopy(tempArray, sizeof(Int32) * 32, DataArray, 0, sizeof(Int32) * nRealPixelNo);                    
+                    }
+                  */
+                    System.Buffer.BlockCopy(tempArray, sizeof(Int32) * 32, DataArray, 0, sizeof(Int32) * nRealPixelNo);                    
+                    
+                }
+                else
+                {
+                    for (int j = 0; j < nRealPixelNo; j++)
+                    {
+                        DataArray[j + EffectivePixelIndex] = tempArray[j + EffectivePixelIndex] / (Int32)(double.Parse(TimeAverage.Text) + 0.5);
+                    }
+                }
+
+                if (rb_UserData.Checked == true)
+                {
+                    for (int j = 0; j < nRealPixelNo; j++)
+                    {
+
+                        SPdbUSBm.spPolyCalc(dCoefficient, 3, (j + 1), dWL);
+                        string textValue = (j + 1) + "\t" + dWL[0] + "\t\t" + DataArray[j + EffectivePixelIndex].ToString("####.####") + "\r\n";
+                        System.IO.File.AppendAllText(savePath, textValue, Encoding.Default);
+                    }
+                }
+                else if (rb_FactoryData.Checked == true)
+                {
+
+                    for (int j = 0; j < nRealPixelNo; j++)
+                    {
+                        string textValue = (j + 1) + "\t" + WLTableArray[j] + "\t\t" + DataArray[j + EffectivePixelIndex].ToString("####.####") + "\r\n";
+                        System.IO.File.AppendAllText(savePath, textValue, Encoding.Default);
+                    }
+                }
+
+        }
+        public void GetDataAll_Click(object sender, EventArgs e)
+        {
+            Thread GetData = new Thread(new ThreadStart(GetDataSet));
+            GetData.Start();    
+        }
+        private void Close_Click_1(object sender, EventArgs e)
+        {
+            this.Close();
+        }
+        private void ButtonState(object sender, EventArgs e)
+        {
+            CheckConnections.Enabled = false;
+            CheckChannels.Enabled = false;
+            CheckConText.Text = "";
+            CheckChnText.Text = "";
+            GetDataAll.Enabled = false;
+            Graph.Enabled = false;
+            SaveFileName.Enabled = false;
+            IntegTime.Enabled = false;
+            TimeAverage.Enabled = false;
+            rb_FactoryData.Checked = true;
+            CheckConnections.Enabled = true;
+            CheckConText.Clear();
+            CheckChnText.Clear();
+        }
+        public void rb_UserData_CheckedChanged(object sender, EventArgs e)
+        {
+            int nCalibNo;
+
+            if (Model.Text == "SM24X")
+            {
+                nCalibNo = 12;
+                double[] dWaveLength = new double[nCalibNo];
+                double[] dPixelNo = new double[nCalibNo];
+                double[] dRCoefficient = new double[5];
+                double[] dCoefficient = new double[5];
+                double[] fData = new double[nRealPixelNo];
+                dWaveLength[0] = 253.7; dPixelNo[0] = 348;
+                dWaveLength[1] = 313.2; dPixelNo[1] = 465;
+                dWaveLength[2] = 365.0; dPixelNo[2] = 567;
+                dWaveLength[3] = 404.7; dPixelNo[3] = 643;
+                dWaveLength[4] = 435.8; dPixelNo[4] = 703;
+                dWaveLength[5] = 546.1; dPixelNo[5] = 910;
+                dWaveLength[6] = 577.0; dPixelNo[6] = 967;
+                dWaveLength[7] = 579.1; dPixelNo[7] = 971;
+                dWaveLength[8] = 696.5; dPixelNo[8] = 1186;
+                dWaveLength[9] = 763.5; dPixelNo[9] = 1306;
+                dWaveLength[10] = 811.5; dPixelNo[10] = 1392;
+                dWaveLength[11] = 912.3; dPixelNo[11] = 1570;
+
+                SPdbUSBm.spPolyFit(dPixelNo,dWaveLength, 12, dCoefficient, 3);
+
+
+ 
+
+            }
+            else if (Model.Text == "SM44X")
+            {
+                nCalibNo = 12;               
+                double[] dWaveLength = new double[nCalibNo];
+                double[] dPixelNo = new double[nCalibNo];
+                double[] dRCoefficient = new double[4];
+                double[] dWL = new double[nRealPixelNo];
+                Int32[] DataArray = new Int32[nTOTPixelNo];
+                
+
+                dWaveLength[0] = 253.7; dPixelNo[0] = 348;
+                dWaveLength[1] = 313.2; dPixelNo[1] = 465;
+                dWaveLength[2] = 365.0; dPixelNo[2] = 567;
+                dWaveLength[3] = 404.7; dPixelNo[3] = 643;
+                dWaveLength[4] = 435.8; dPixelNo[4] = 703;
+                dWaveLength[5] = 546.1; dPixelNo[5] = 910;
+                dWaveLength[6] = 577.0; dPixelNo[6] = 967;
+                dWaveLength[7] = 579.1; dPixelNo[7] = 971;
+                dWaveLength[8] = 696.5; dPixelNo[8] = 1186;
+                dWaveLength[9] = 763.5; dPixelNo[9] = 1306;
+                dWaveLength[10] = 811.5; dPixelNo[10] = 1392;
+                dWaveLength[11] = 912.3; dPixelNo[11] = 1570;
+
+                SPdbUSBm.spPolyFit(dPixelNo, dWaveLength, 12, dCoefficient, 3);
+                
+                
+            }
+            else if (Model.Text == "SM303")
+            {
+                nCalibNo = 9;
+                double[] dWaveLength = new double[nCalibNo];
+                double[] dPixelNo = new double[nCalibNo];
+                double[] dRCoefficient = new double[5];
+                double[] dCoefficient = new double[5];
+
+                dWaveLength[0] = 313.2; dPixelNo[0] = 81;
+                dWaveLength[1] = 365.0; dPixelNo[1] = 174;
+                dWaveLength[2] = 404.7; dPixelNo[2] = 243;
+                dWaveLength[3] = 435.8; dPixelNo[3] = 298;
+                dWaveLength[4] = 546.1; dPixelNo[4] = 486;
+                dWaveLength[5] = 696.5; dPixelNo[5] = 734;
+                dWaveLength[6] = 763.5; dPixelNo[6] = 842;
+                dWaveLength[7] = 811.5; dPixelNo[7] = 918;
+                dWaveLength[8] = 842.5; dPixelNo[8] = 966;
+
+                SPdbUSBm.spPolyFit(dPixelNo, dWaveLength, 9, dCoefficient, 3);
+
+            }
+            else if (Model.Text == "SM642")
+            {
+
+                nCalibNo = 12;
+                double[] dWaveLength = new double[nCalibNo];
+                double[] dPixelNo = new double[nCalibNo];
+                double[] dRCoefficient = new double[5];
+                double[] dCoefficient = new double[5];
+
+                dWaveLength[0] = 253.7; dPixelNo[0] = 348;
+                dWaveLength[1] = 313.2; dPixelNo[1] = 465;
+                dWaveLength[2] = 365.0; dPixelNo[2] = 567;
+                dWaveLength[3] = 404.7; dPixelNo[3] = 643;
+                dWaveLength[4] = 435.8; dPixelNo[4] = 703;
+                dWaveLength[5] = 546.1; dPixelNo[5] = 910;
+                dWaveLength[6] = 577.0; dPixelNo[6] = 967;
+                dWaveLength[7] = 579.1; dPixelNo[7] = 971;
+                dWaveLength[8] = 696.5; dPixelNo[8] = 1186;
+                dWaveLength[9] = 763.5; dPixelNo[9] = 1306;
+                dWaveLength[10] = 811.5; dPixelNo[10] = 1392;
+                dWaveLength[11] = 912.3; dPixelNo[11] = 1570;
+
+                SPdbUSBm.spPolyFit(dPixelNo, dWaveLength, 12, dCoefficient, 3);
+
+
+            }
+
+
+        }
+        private void TimeAverage_TextChanged(object sender, EventArgs e)
+        {
+
+            for (int i = 0; i < TimeAverage.Text.Length; i++)
+            {
+                if (char.IsNumber(TimeAverage.Text[i]) == false)
+                {
+                    MessageBox.Show("숫자를 입력하세요");
+                    return;
+                }
+            }
+        }
+    }
+}
+
+
+
+
+    
+
