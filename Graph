@@ -1,0 +1,120 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Windows.Forms;
+using System.Runtime.InteropServices;
+using System.Windows.Forms.DataVisualization.Charting;
+using System.Threading;
+
+namespace SM_Series_SDK
+{
+    public partial class Graph : Form
+    {   
+        public delegate void getDataDelegate();
+        private getDataDelegate dataDelegate;
+        private Series s1;
+        public int TOTNo, RealNo;
+        public double[] WLTableArray;
+        public double[] dWL;
+        public Int32[] DataArray;
+        public Int32[] YPlotDataArray;
+        public SDK_USBm pParent;
+        public Thread DataThread;
+
+        public Graph()
+        {
+            InitializeComponent();
+            dataDelegate = new getDataDelegate(Plotchart);
+            s1 = new Series("Intensity");
+            s1.IsValueShownAsLabel = true;
+            s1.ChartType = SeriesChartType.FastLine;
+            s1.IsVisibleInLegend = false;
+            chart1.Series.Add(s1);
+        }       
+        public void GetData()
+        {
+            int sRtn = SPdbUSBm.spReadDataEx(DataArray, 0);
+
+            System.Buffer.BlockCopy(DataArray, sizeof(Int32) * 32, YPlotDataArray, 0, sizeof(Int32) * RealNo);
+        }
+        public void Plotchart()  
+        {
+            s1.Points.Clear();
+
+            if (pParent.rb_FactoryData.Checked == true)
+            {
+                for (int i = 0; i < RealNo; i++)
+                {
+                    s1.Points.AddXY(WLTableArray[i], YPlotDataArray[i]);
+                }
+            }
+            else if(pParent.rb_UserData.Checked== true)
+            {
+                for (int i = 0; i < RealNo; i++)
+                {
+                    SPdbUSBm.spPolyCalc(pParent.dCoefficient, 3, (i + 1), dWL);
+                    s1.Points.AddXY(dWL[0], YPlotDataArray[i]);
+                }
+            }
+             
+         }        
+        public void Woker()
+        {
+            while (true)
+            {
+                GetData();
+
+                if (this.chart1.InvokeRequired)
+                {
+                    this.Invoke(dataDelegate);
+                }
+                else
+                {
+                    Plotchart();
+                }
+            }
+        }
+        private void Form2_FormClosed(object sender, FormClosedEventArgs e)
+        {
+            if (DataThread != null && DataThread.IsAlive == true)
+                DataThread.Abort();
+        }
+        private void chart_bViewStop_Click(object sender, EventArgs e)
+        {          
+            DataThread.Abort();
+        }
+        private void chart_bFixed_Click(object sender, EventArgs e)
+        {
+            chart1.ChartAreas[0].AxisY.Maximum = 65535;
+            chart1.ChartAreas[0].AxisY.Interval = 10000;
+        }
+        private void chart_bReset_Click(object sender, EventArgs e)
+        {
+            chart1.ChartAreas[0].AxisY.Maximum = double.NaN;
+            chart1.ChartAreas[0].AxisY.Minimum = double.NaN;
+            chart1.ChartAreas[0].AxisY.Interval = double.NaN;
+            chart1.ChartAreas[0].AxisY.IsStartedFromZero = false;
+            chart1.ChartAreas[0].AxisY.IntervalOffset = double.NaN;   
+        }
+        private void chart_bReStart_Click(object sender, EventArgs e)
+        {
+            if (DataThread == null)
+            {
+                DataThread = new Thread(new ThreadStart(Woker));
+                DataThread.Start();
+
+            }
+            if (DataThread.IsAlive == false)
+            {
+                DataThread = new Thread(new ThreadStart(Woker));
+                DataThread.Start();
+            }
+        }
+
+
+    }
+}
